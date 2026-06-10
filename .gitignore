@@ -4,3 +4,8 @@ __pycache__/
 audio.*
 transcript.txt
 summary.md
+summary*.md
+audio.*
+transcript.txt
+__pycache__/
+*.pyc
