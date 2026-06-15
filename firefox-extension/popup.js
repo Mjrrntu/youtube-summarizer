@@ -11,45 +11,28 @@ async function getCurrentTabUrl() {
   return tabs[0].url;
 }
 
-document.getElementById("summarize").addEventListener("click", async () => {
+
+async function startAnalysis(endpoint, label) {
   const status = document.getElementById("status");
-  const output = document.getElementById("output");
+  status.textContent = `${label}: tehtävä käynnistetty`;
 
-  status.textContent = "Käsitellään...";
-  output.textContent = "";
+  const url = await getCurrentTabUrl();
 
-  try {
-    const url = await getCurrentTabUrl();
+  const resultUrl = browser.runtime.getURL(
+    `result.html?endpoint=${encodeURIComponent(endpoint)}&label=${encodeURIComponent(label)}&url=${encodeURIComponent(url)}`
+  );
 
-    const response = await fetch("http://127.0.0.1:8765/summarize", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        url: url,
-        whisper_model: "large-v3",
-        ai_model: "gpt-oss:20b",
-        device: "cuda",
-        compute_type: "float16",
-        cpu_threads: 24
-      })
-    });
+  await browser.tabs.create({
+    url: resultUrl
+  });
+}
 
-    const data = await response.json();
 
-    if (!data.ok) {
-      status.textContent = "Virhe";
-      output.textContent = data.stderr || data.stdout || JSON.stringify(data, null, 2);
-      return;
-    }
+document.getElementById("summarize").addEventListener("click", async () => {
+  await startAnalysis("summarize", "AI-yhteenveto");
+});
 
-    status.textContent = "Valmis";
-    // output.textContent = data.summary;
-    output.innerHTML = marked.parse(data.summary);
 
-  } catch (err) {
-    status.textContent = "Virhe";
-    output.textContent = String(err);
-  }
+document.getElementById("tech-analysis").addEventListener("click", async () => {
+  await startAnalysis("tech-analysis", "Tech Analysis");
 });

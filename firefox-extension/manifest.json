@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI YouTube Summary",
-  "version": "0.1",
+  "version": "0.2",
   "description": "Summarize current YouTube video using local AI pipeline.",
   "permissions": ["tabs", "activeTab"],
   "host_permissions": [

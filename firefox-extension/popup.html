@@ -6,13 +6,18 @@
   <style>
     body {
       font-family: sans-serif;
-      width: 520px;
+      width: 620px;
       padding: 12px;
       margin: 0;
     }
 
+    .buttons {
+      display: flex;
+      gap: 8px;
+    }
+
     button {
-      width: 100%;
+      flex: 1;
       padding: 10px;
       font-size: 15px;
       cursor: pointer;
@@ -46,6 +51,7 @@
       width: 100%;
       margin-top: 10px;
       margin-bottom: 10px;
+      font-size: 13px;
     }
 
     #output th,
@@ -73,18 +79,21 @@
 
 <body>
 
-  <button id="summarize">
-    AI-yhteenveto
-  </button>
+  <div class="buttons">
+    <button id="summarize">
+      AI-yhteenveto
+    </button>
+
+    <button id="tech-analysis">
+      Tech Analysis
+    </button>
+  </div>
 
   <div id="status"></div>
 
   <div id="output"></div>
 
-  <!-- Markdown renderer -->
   <script src="marked.min.js"></script>
-
-  <!-- Oma Javascript -->
   <script src="popup.js"></script>
 
 </body>
