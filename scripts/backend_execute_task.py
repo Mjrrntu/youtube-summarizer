@@ -35,7 +35,7 @@ def get_video_id(url: str) -> str:
 def load_transcript(input_data: dict, previous_outputs: dict, step) -> dict:
     url = input_data.get("url")
     if not url:
-        raise ValueError("Missing url in run input_json")
+        raise ValueError("Missing url in run input_contents")
 
     video_id = get_video_id(url)
     if not video_id:
@@ -55,8 +55,8 @@ def load_transcript(input_data: dict, previous_outputs: dict, step) -> dict:
     transcript_text = "\n".join(item.text for item in fetched)
 
     return {
-        "output_text": transcript_text,
-        "output_json": {
+        "output_contents": transcript_text,
+        "metadata": {
             "ok": True,
             "source": transcript_source,
             "video_id": video_id,
@@ -112,9 +112,10 @@ def insert_step_result(
     conn,
     run_id: int,
     step,
-    input_json: dict,
-    output_json: dict,
-    output_text: str,
+    input_contents: dict,
+    metadata: dict,
+    output_contents: str,
+    output_format: str,
     status: str,
     error_text: str | None = None,
 ):
@@ -127,24 +128,26 @@ def insert_step_result(
             step_order,
             step_name,
             step_handler,
-            input_json,
-            output_json,
-            output_text,
+            input_contents,
+            metadata,
+            output_contents,
+            output_format,
             status,
             error_text,
             row_created_at,
             row_updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             run_id,
             step["step_order"],
             step["step_name"],
             step["step_handler"],
-            json.dumps(input_json, ensure_ascii=False),
-            json.dumps(output_json, ensure_ascii=False),
-            output_text,
+            json.dumps(input_contents, ensure_ascii=False),
+            json.dumps(metadata, ensure_ascii=False),
+            output_contents,
+            output_format,
             status,
             error_text,
             now,
@@ -167,10 +170,10 @@ def summarize(input_data: dict, previous_outputs: dict, step) -> dict:
     if not transcript_step:
         raise ValueError("Missing previous output: load_transcript")
 
-    transcript = transcript_step.get("output_text", "").strip()
+    transcript = transcript_step.get("output_contents", "").strip()
 
     if not transcript:
-        raise ValueError("load_transcript output_text is empty")
+        raise ValueError("load_transcript output_contents is empty")
 
     full_prompt = prompt_text.replace("{{transcript}}", transcript)
 
@@ -192,8 +195,8 @@ def summarize(input_data: dict, previous_outputs: dict, step) -> dict:
     summary = result.stdout.strip()
 
     return {
-        "output_text": summary,
-        "output_json": {
+        "output_contents": summary,
+        "metadata": {
             "ok": True,
             "model": model_name,
             "prompt_id": step["prompt_id"],
@@ -220,10 +223,10 @@ def collect_claims(input_data: dict, previous_outputs: dict, step) -> dict:
     if not summary_step:
         raise ValueError("Missing previous output: summarize")
 
-    summary = summary_step.get("output_text", "").strip()
+    summary = summary_step.get("output_contents", "").strip()
 
     if not summary:
-        raise ValueError("summarize output_text is empty")
+        raise ValueError("summarize output_contents is empty")
 
     full_prompt = prompt_text.replace("{{summary}}", summary)
 
@@ -245,8 +248,8 @@ def collect_claims(input_data: dict, previous_outputs: dict, step) -> dict:
     claims_text = result.stdout.strip()
 
     return {
-        "output_text": claims_text,
-        "output_json": {
+        "output_contents": claims_text,
+        "metadata": {
             "ok": True,
             "model": model_name,
             "prompt_id": step["prompt_id"],
@@ -271,8 +274,8 @@ def verify_claims(input_data, previous_outputs, step):
     if not claims_step:
         raise ValueError("Missing collect_claims output")
 
-    transcript = transcript_step["output_text"]
-    claims = claims_step["output_text"]
+    transcript = transcript_step["output_contents"]
+    claims = claims_step["output_contents"]
 
     full_prompt = (
         prompt_text
@@ -298,8 +301,8 @@ def verify_claims(input_data, previous_outputs, step):
     verification_report = result.stdout.strip()
 
     return {
-        "output_text": verification_report,
-        "output_json": {
+        "output_contents": verification_report,
+        "metadata": {
             "ok": True,
             "model": model_name,
             "prompt_id": step["prompt_id"],
@@ -309,7 +312,89 @@ def verify_claims(input_data, previous_outputs, step):
     }
 
 
+def annotate_summary(input_data: dict, previous_outputs: dict, step) -> dict:
+    model_name = step["model_name"]
+    prompt_text = step["prompt_text"]
 
+    if not model_name:
+        raise ValueError("annotate_summary step is missing model_name")
+
+    if not prompt_text:
+        raise ValueError("annotate_summary step is missing prompt_text")
+
+    summary_step = previous_outputs.get("summarize")
+    verification_step = previous_outputs.get("verify_claims")
+
+    if not summary_step:
+        raise ValueError("Missing previous output: summarize")
+
+    if not verification_step:
+        raise ValueError("Missing previous output: verify_claims")
+
+    summary = summary_step.get("output_contents", "").strip()
+    verification = verification_step.get("output_contents", "").strip()
+
+    if not summary:
+        raise ValueError("summarize output_contents is empty")
+
+    if not verification:
+        raise ValueError("verify_claims output_contents is empty")
+
+    full_prompt = (
+        prompt_text
+        .replace("{{summary}}", summary)
+        .replace("{{verification}}", verification)
+    )
+
+    result = subprocess.run(
+        [
+            "ollama",
+            "run",
+            model_name,
+            full_prompt,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=7200,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "ollama annotate_summary failed")
+
+    annotated_summary = result.stdout.strip()
+
+    return {
+        "output_contents": annotated_summary,
+        "metadata": {
+            "ok": True,
+            "model": model_name,
+            "prompt_id": step["prompt_id"],
+            "prompt_name": step["prompt_name"],
+            "input_steps": ["summarize", "verify_claims"],
+            "char_count": len(annotated_summary),
+        },
+    }
+
+def render_result(input_data, previous_outputs, step):
+
+    annotated = previous_outputs["annotate_summary"]["output_contents"]
+
+    html = f"""
+    <html>
+    <body>
+    <pre>{annotated}</pre>
+    </body>
+    </html>
+    """
+
+    return {
+        "output_contents": html,
+        "metadata": {
+            "ok": True,
+            "format": "html",
+            "char_count": len(html),
+        },
+    }
 
 
 
@@ -318,6 +403,8 @@ HANDLERS = {
     "summarize": summarize,
     "collect_claims": collect_claims,
     "verify_claims": verify_claims,
+    "annotate_summary": annotate_summary,
+    "render_result": render_result,
 }
 
 
@@ -359,18 +446,18 @@ def main():
             handler = HANDLERS.get(step_handler)
 
             if handler is None:
-                output_json = {
+                metadata = {
                     "ok": True,
                     "note": "dummy completed; handler not implemented yet",
                     "step_handler": step_handler,
                 }
-                output_text = ""
+                output_contents = ""
                 status = "completed"
                 error_text = None
             else:
                 result = handler(run_input, previous_outputs, step)
-                output_json = result.get("output_json", {})
-                output_text = result.get("output_text", "")
+                metadata = result.get("metadata", {})
+                output_contents = result.get("output_contents", "")
                 status = "completed"
                 error_text = None
 
@@ -378,17 +465,18 @@ def main():
                 conn=conn,
                 run_id=args.run_id,
                 step=step,
-                input_json=step_input,
-                output_json=output_json,
-                output_text=output_text,
+                input_contents=step_input,
+                metadata=metadata,
+                output_contents=output_contents,
+                output_format=step["output_format"],
                 status=status,
                 error_text=error_text,
             )
             conn.commit()
 
             previous_outputs[step["step_name"]] = {
-                "output_json": output_json,
-                "output_text": output_text,
+                "metadata": metadata,
+                "output_contents": output_contents,
             }
 
             executed_steps.append(

@@ -6,6 +6,38 @@ transcript.txt
 summary.md
 summary*.md
 audio.*
+olds/
 transcript.txt
 __pycache__/
 *.pyc
+
+.venv/
+__pycache__/
+*.py[cod]
+
+# Runtime/private data
+*.db
+*.sqlite
+*.sqlite3
+*.db.backup-*
+*.backup-*
+cache/
+logs/
+exports/
+transcripts/
+audio.*
+transcript*.txt
+summary*.md
+nohup.out
+
+# Old/local scratch
+olds/
+originals/
+*_old
+*.old
+*.bak
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
