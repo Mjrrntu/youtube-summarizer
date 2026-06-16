@@ -4,6 +4,8 @@ import argparse
 import json
 import sqlite3
 import subprocess
+import html
+import re
 from pathlib import Path
 from datetime import datetime, UTC
 from urllib.parse import urlparse, parse_qs
@@ -375,24 +377,87 @@ def annotate_summary(input_data: dict, previous_outputs: dict, step) -> dict:
         },
     }
 
-def render_result(input_data, previous_outputs, step):
 
+ANSI_ESCAPE_RE = re.compile(
+    r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])"
+)
+
+def remove_rewritten_line_fragments(text: str) -> str:
+    lines = text.splitlines()
+    cleaned = []
+
+    for line in lines:
+        current = line.strip()
+
+        if cleaned:
+            previous = cleaned[-1].strip()
+
+            # Jos edellinen rivi näyttää olevan seuraavan rivin alku,
+            # esim. "Venäj" + "Venäjälle", poistetaan edellinen fragmentti.
+            if previous and current.startswith(previous):
+                cleaned[-1] = line
+                continue
+
+        cleaned.append(line)
+
+    return "\n".join(cleaned)
+
+
+def clean_for_render(text: str) -> str:
+    text = ANSI_ESCAPE_RE.sub("", text)
+    text = text.replace("\r", "")
+    return text
+
+
+def remove_wrapped_word_fragments(text: str) -> str:
+    lines = text.splitlines()
+    cleaned = []
+
+    for line in lines:
+        current = line.strip()
+
+        if cleaned and current:
+            previous = cleaned[-1]
+
+            previous_words = previous.rstrip().split()
+            current_words = current.split()
+
+            if previous_words and current_words:
+                prev_last = previous_words[-1]
+                curr_first = current_words[0]
+
+                # Esim:
+                # "jos" + "jossa"
+                # "ede" + "edelleen"
+                # "merkittäv" + "merkittävä"
+                if (
+                    len(prev_last) >= 2
+                    and len(curr_first) > len(prev_last)
+                    and curr_first.startswith(prev_last)
+                ):
+                    previous_words[-1] = curr_first
+                    cleaned[-1] = " ".join(previous_words)
+
+                    rest = " ".join(current_words[1:])
+                    if rest:
+                        cleaned[-1] += " " + rest
+
+                    continue
+
+        cleaned.append(current)
+
+    return "\n".join(cleaned)
+
+
+def render_result(input_data, previous_outputs, step):
     annotated = previous_outputs["annotate_summary"]["output_contents"]
 
-    html = f"""
-    <html>
-    <body>
-    <pre>{annotated}</pre>
-    </body>
-    </html>
-    """
-
     return {
-        "output_contents": html,
+        "output_contents": annotated,
         "metadata": {
             "ok": True,
-            "format": "html",
-            "char_count": len(html),
+            "format": "markdown",
+            "char_count": len(annotated),
         },
     }
 
